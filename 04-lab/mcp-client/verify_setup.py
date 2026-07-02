@@ -1,135 +1,159 @@
 #!/usr/bin/env python3
-"""
-Verification script for Weather Agent setup
-Checks if all components are configured correctly
-"""
+"""Verify the local Weather Agent lab setup."""
+
+from __future__ import annotations
+
+import asyncio
 import os
 import sys
+import warnings
 from pathlib import Path
 
-def check_environment():
-    """Check if .env file exists and is configured"""
-    print("🔍 Checking environment configuration...")
-    
-    env_file = Path(".env")
-    if not env_file.exists():
-        print("❌ .env file not found")
-        print("   Run: echo 'GOOGLE_API_KEY=your_key' > .env")
-        return False
-    
-    # Check if GOOGLE_API_KEY is set
+try:
     from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+else:
     load_dotenv()
-    
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key or api_key == "your_google_api_key_here":
-        print("❌ GOOGLE_API_KEY not configured in .env")
-        print("   Get key from: https://aistudio.google.com/apikey")
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+if not os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8085/mcp")
+
+
+def check_environment() -> bool:
+    """Check whether the ADK client has a Google API key configured."""
+    print("Checking environment configuration...")
+
+    if load_dotenv is None:
+        print("FAIL python-dotenv is not installed")
         return False
-    
-    print(f"✅ GOOGLE_API_KEY configured ({api_key[:10]}...)")
+
+    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not api_key or api_key == "your_google_api_key_here":
+        print("FAIL GOOGLE_API_KEY is not configured")
+        print("     Set GOOGLE_API_KEY in mcp-client/.env or GEMINI_API_KEY in the repo .env")
+        return False
+
+    source = "GOOGLE_API_KEY" if os.getenv("GOOGLE_API_KEY") else "GEMINI_API_KEY"
+    print(f"OK   {source} configured ({len(api_key)} characters)")
     return True
 
-def check_dependencies():
-    """Check if required packages are installed"""
-    print("\n🔍 Checking dependencies...")
-    
+
+def check_dependencies() -> bool:
+    """Check whether required Python packages are importable."""
+    print("\nChecking dependencies...")
+
     required_packages = [
         ("google.adk", "Google ADK"),
-        ("google.generativeai", "Google Generative AI"),
         ("mcp", "MCP"),
-        ("fastmcp", "FastMCP"),
-        ("dotenv", "python-dotenv"),
         ("httpx", "httpx"),
+        ("dotenv", "python-dotenv"),
     ]
-    
+
     all_installed = True
     for package, name in required_packages:
         try:
-            __import__(package)
-            print(f"✅ {name}")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", FutureWarning)
+                __import__(package)
+            print(f"OK   {name}")
         except ImportError:
-            print(f"❌ {name} not installed")
+            print(f"FAIL {name} is not installed")
             all_installed = False
-    
+
     if not all_installed:
-        print("\n   Install with: uv sync")
-        print("   Or: pip install google-adk google-generativeai mcp fastmcp python-dotenv httpx")
-    
+        print("\nInstall dependencies with: uv sync")
+
     return all_installed
 
-def check_agent_structure():
-    """Check if agent directory structure is correct"""
-    print("\n🔍 Checking agent structure...")
-    
+
+def check_agent_structure() -> bool:
+    """Check whether ADK can discover the weather_agent package."""
+    print("\nChecking agent structure...")
+
     required_files = [
-        "weather_agent/agent.py",
-        "weather_agent/__init__.py",
+        Path("weather_agent/agent.py"),
+        Path("weather_agent/__init__.py"),
     ]
-    
+
     all_exist = True
-    for file_path in required_files:
-        path = Path(file_path)
+    for path in required_files:
         if path.exists():
-            print(f"✅ {file_path}")
+            print(f"OK   {path}")
         else:
-            print(f"❌ {file_path} not found")
+            print(f"FAIL {path} not found")
             all_exist = False
-    
+
     return all_exist
 
-def check_mcp_server():
-    """Check if MCP server is accessible"""
-    print("\n🔍 Checking MCP server connectivity...")
-    
-    server_url = "https://weather-mcp-server-oze7nwnjba-as.a.run.app"
-    
-    try:
-        import httpx
-        import asyncio
-        
-        async def test_connection():
-            async with httpx.AsyncClient() as client:
-                response = await client.get(server_url, timeout=10.0)
-                return response.status_code
-        
-        status_code = asyncio.run(test_connection())
-        
-        if status_code in [200, 404]:  # 404 is expected for GET on MCP endpoint
-            print(f"✅ MCP server reachable at {server_url}")
-            return True
-        else:
-            print(f"⚠️  MCP server returned status {status_code}")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Cannot reach MCP server: {e}")
-        return False
 
-def check_agent_import():
-    """Try to import the agent"""
-    print("\n🔍 Checking agent import...")
-    
-    try:
-        # Suppress warnings during import
-        import warnings
-        warnings.filterwarnings("ignore")
-        
-        from weather_agent import root_agent
-        print(f"✅ Agent imported successfully: {root_agent.name}")
-        print(f"   Model: {root_agent.model}")
+def check_mcp_server() -> bool:
+    """Connect to the MCP server and verify the expected tools are available."""
+    print("\nChecking MCP server connectivity...")
+    print(f"Server URL: {MCP_SERVER_URL}")
+
+    async def test_connection() -> tuple[bool, str]:
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamable_http_client
+
+        try:
+            async with streamable_http_client(MCP_SERVER_URL) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools = await session.list_tools()
+                    names = {tool.name for tool in tools.tools}
+                    expected = {
+                        "get_current_weather",
+                        "get_forecast",
+                        "health_check",
+                    }
+                    missing = expected - names
+                    if missing:
+                        return False, f"missing tools: {', '.join(sorted(missing))}"
+
+                    health = await session.call_tool("health_check", {})
+                    text = health.content[0].text if health.content else ""
+                    return True, text
+        except Exception as exc:
+            return False, str(exc)
+
+    ok, detail = asyncio.run(test_connection())
+    if ok:
+        print("OK   MCP server reachable")
+        print(f"     health_check: {detail}")
         return True
-    except Exception as e:
-        print(f"❌ Failed to import agent: {e}")
+
+    print(f"FAIL Cannot connect to MCP server: {detail}")
+    print("     Start it first from ../mcp-server with: uv run python weather.py")
+    return False
+
+
+def check_agent_import() -> bool:
+    """Import the ADK root_agent."""
+    print("\nChecking agent import...")
+
+    try:
+        from weather_agent import root_agent
+
+        print(f"OK   Agent imported: {root_agent.name}")
+        print(f"     Model: {root_agent.model}")
+        return True
+    except Exception as exc:
+        print(f"FAIL Failed to import agent: {exc}")
         return False
 
-def main():
-    """Run all verification checks"""
+
+def main() -> int:
     print("=" * 60)
     print("Weather Agent Setup Verification")
     print("=" * 60)
-    print()
-    
+
     checks = [
         check_environment(),
         check_dependencies(),
@@ -137,20 +161,17 @@ def main():
         check_mcp_server(),
         check_agent_import(),
     ]
-    
+
     print("\n" + "=" * 60)
     if all(checks):
-        print("✅ All checks passed!")
-        print("\n🚀 Ready to start!")
-        print("   Run: ./start_agent.sh")
-        print("   Or:  uv run adk web")
-        print("\n📍 Then open: http://localhost:8000")
+        print("All checks passed.")
+        print("Run the client UI with: uv run adk web")
+        print("Then open: http://localhost:8000")
         return 0
-    else:
-        print("❌ Some checks failed")
-        print("\n⚠️  Fix the issues above and run this script again")
-        return 1
+
+    print("Some checks failed. Fix the items above and run this script again.")
+    return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
-

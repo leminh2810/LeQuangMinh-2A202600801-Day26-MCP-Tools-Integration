@@ -40,6 +40,8 @@ AI agent built with **Google Agent Development Kit (ADK)** that uses tools from 
 
 ```bash
 cd ../mcp-server
+cp .env.example .env
+# Edit .env and set WEATHERAPI_KEY, or export it directly:
 export WEATHERAPI_KEY="your_weatherapi_key"
 uv run python weather.py
 ```
@@ -51,7 +53,8 @@ cd mcp-client
 
 # Create .env file with your Google API key
 # Get free key from: https://aistudio.google.com/apikey
-echo "GOOGLE_API_KEY=your_google_api_key_here" > .env
+cp .env.example .env
+# Edit .env and set GOOGLE_API_KEY
 ```
 
 ### 3. Install Dependencies
@@ -63,6 +66,7 @@ uv sync
 ### 4. Run the Agent
 
 ```bash
+uv run python verify_setup.py
 uv run adk web
 ```
 
@@ -133,7 +137,11 @@ Fix the connection and restart ADK web.
 Create `.env` file:
 ```bash
 GOOGLE_API_KEY=your_gemini_api_key
+MCP_SERVER_URL=http://localhost:8085/mcp
 ```
+
+If the repository root already has `GEMINI_API_KEY`, the agent will also accept it
+as a fallback for `GOOGLE_API_KEY`.
 
 ## Resources
 

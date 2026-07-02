@@ -57,6 +57,8 @@ cd mcp-server
 uv sync
 
 # Set your WeatherAPI key (get one free at https://weatherapi.com)
+cp .env.example .env
+# Edit .env and set WEATHERAPI_KEY, or export it directly:
 export WEATHERAPI_KEY="your_weatherapi_key"
 
 # Start the server (runs on port 8085 by default)
@@ -72,7 +74,11 @@ cd mcp-client
 uv sync
 
 # Create .env file with your Gemini API key
-echo "GOOGLE_API_KEY=your_gemini_api_key" > .env
+cp .env.example .env
+# Edit .env and set GOOGLE_API_KEY
+
+# Optional: verify setup before starting the UI
+uv run python verify_setup.py
 
 # Start ADK web interface
 uv run adk web
@@ -86,4 +92,6 @@ Open http://localhost:8000 in your browser, select `weather_agent`, and ask abou
 |----------|-------|-------------|
 | `WEATHERAPI_KEY` | mcp-server | API key from weatherapi.com |
 | `GOOGLE_API_KEY` | mcp-client/.env | Gemini API key |
+| `GEMINI_API_KEY` | repo root .env | Also accepted as a fallback for `GOOGLE_API_KEY` |
+| `MCP_SERVER_URL` | mcp-client/.env | Override MCP server URL (default: `http://localhost:8085/mcp`) |
 | `PORT` | mcp-server (env) | Override server port (default: 8085) |
